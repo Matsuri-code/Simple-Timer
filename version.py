@@ -1,0 +1,6 @@
+APP_NAME = "Simple Timer"
+VERSION = "1.1.0"
+AUTHOR = "shima"
+
+WINDOW_WIDTH = 420
+WINDOW_HEIGHT = 700
