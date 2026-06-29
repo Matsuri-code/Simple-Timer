@@ -45,5 +45,12 @@ Created by **Matsuri-code**
 ## 🔄 Version
 
 Current Version: **v1.1**
+## ☕ Support
+
+If you enjoy using **Simple Timer**, you can support future development here:
+
+☕ https://ko-fi.com/matsuricode
+
+Thank you for your support!
 
 
