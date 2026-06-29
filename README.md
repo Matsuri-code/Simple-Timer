@@ -1,3 +1,6 @@
+<p align="center">
+  <img src="assets/icon.png" width="128" alt="Simple Timer Icon">
+</p>
 # 🕒 Simple Timer
 
 A simple and easy-to-use timer application for Windows.
