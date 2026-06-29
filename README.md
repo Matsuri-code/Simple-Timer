@@ -12,7 +12,7 @@ A simple and easy-to-use timer application for Windows.
 
 ## 📸 Screenshot
 
-*(Screenshot will be added soon.)*
+![Simple Timer](assets/screenshot.jpg)
 
 ## 📦 Installation
 
