@@ -1,6 +1,8 @@
 import tkinter as tk
 from tkinter import messagebox
 
+from updater import is_update_available, get_latest_release_url
+
 from settings import SettingsManager
 from themes import THEMES, get_theme
 from audio import AudioPlayer
@@ -472,11 +474,29 @@ def main():
 
     root = tk.Tk()
 
+    update_available, latest = is_update_available()
+
+    if update_available:
+
+        result = messagebox.askyesno(
+            "アップデート",
+            f"新しいバージョン {latest} が公開されています。\n\n"
+            "GitHubの更新ページを開きますか？"
+        )
+
+        if result:
+
+            import webbrowser
+
+            url = get_latest_release_url()
+
+            if url:
+                webbrowser.open(url)
+
     app = SimpleTimerApp(root)
 
     root.mainloop()
 
 
 if __name__ == "__main__":
-
     main()
