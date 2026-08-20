@@ -2,11 +2,14 @@ import tkinter as tk
 from tkinter import messagebox
 
 from updater import is_update_available, get_latest_release_url
+from windows_toasts import Toast, WindowsToaster
 
 from settings import SettingsManager
 from themes import THEMES, get_theme
 from audio import AudioPlayer
 from version import APP_NAME, VERSION
+
+
 class SimpleTimerApp:
 
     def __init__(self, root):
@@ -23,6 +26,7 @@ class SimpleTimerApp:
         self.root.resizable(False, False)
 
         self.audio = AudioPlayer()
+        self.toaster = WindowsToaster("Simple Timer")
 
         self.timer_running = False
         self.stopwatch_running = False
@@ -134,7 +138,7 @@ class SimpleTimerApp:
         self.root.protocol(
             "WM_DELETE_WINDOW",
             self.on_close
-                )
+        )
 
     def create_button(
         self,
@@ -168,6 +172,7 @@ class SimpleTimerApp:
         self.root.configure(
             bg=self.theme["bg"]
         )
+
     def update_theme(self):
 
         self.apply_theme()
@@ -195,7 +200,6 @@ class SimpleTimerApp:
                 activebackground=self.theme["button_bg"],
                 activeforeground=self.theme["button_fg"]
             )
-
 
     def change_theme(self):
 
@@ -225,7 +229,6 @@ class SimpleTimerApp:
             f"{self.current_theme} に変更しました。"
         )
 
-
     def clear_placeholder(
         self,
         event
@@ -238,14 +241,12 @@ class SimpleTimerApp:
                 tk.END
             )
 
-
     def start_timer_key(
         self,
         event
     ):
 
         self.start_timer()
-
 
     def start_timer(self):
 
@@ -275,7 +276,6 @@ class SimpleTimerApp:
 
         self.update_timer()
 
-
     def update_timer(self):
 
         if not self.timer_running:
@@ -299,10 +299,17 @@ class SimpleTimerApp:
                 )
 
                 self.audio.play(
-                    self.settings[
-                        "alarm_duration"
-                    ]
+                    self.settings["alarm_duration"]
                 )
+
+                toast = Toast()
+
+                toast.text_fields = [
+                    "タイマー終了",
+                    "設定した時間になりました。"
+                ]
+
+                self.toaster.show_toast(toast)
 
                 messagebox.showinfo(
                     "終了",
@@ -318,7 +325,6 @@ class SimpleTimerApp:
             self.update_timer
         )
 
-
     def start_stopwatch(self):
 
         self.stop()
@@ -328,7 +334,6 @@ class SimpleTimerApp:
         self.paused = False
 
         self.update_stopwatch()
-
 
     def update_stopwatch(self):
 
@@ -351,16 +356,13 @@ class SimpleTimerApp:
             self.update_stopwatch
         )
 
-
     def pause(self):
 
         self.paused = True
 
-
     def resume(self):
 
         self.paused = False
-
 
     def stop(self):
 
@@ -375,7 +377,6 @@ class SimpleTimerApp:
             )
 
             self.after_id = None
-
 
     def reset(self):
 
@@ -437,9 +438,7 @@ class SimpleTimerApp:
                 if not 5 <= value <= 30:
                     raise ValueError
 
-                self.settings[
-                    "alarm_duration"
-                ] = value
+                self.settings["alarm_duration"] = value
 
                 window.destroy()
 
@@ -457,7 +456,6 @@ class SimpleTimerApp:
         ).pack(
             pady=10
         )
-
 
     def on_close(self):
 
