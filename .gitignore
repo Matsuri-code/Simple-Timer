@@ -9,6 +9,8 @@ venv/
 # PyInstaller
 build/
 dist/
+installer/
+*.spec
 
 # VS Code
 .vscode/

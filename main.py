@@ -1,32 +1,143 @@
+import sys
 import tkinter as tk
 from tkinter import messagebox
 
 from updater import is_update_available, get_latest_release_url
-from windows_toasts import Toast, WindowsToaster
+
+try:
+    # windows_toasts is Windows-only. On other platforms (or if the
+    # package isn't installed) we fall back to a no-op implementation
+    # so the app still runs; it simply won't show a native toast.
+    if sys.platform == "win32":
+        from windows_toasts import Toast, WindowsToaster
+    else:
+        raise ImportError("windows_toasts is only supported on Windows")
+
+except ImportError:
+
+    class Toast:
+        def __init__(self):
+            self.text_fields = []
+
+    class WindowsToaster:
+        def __init__(self, app_name):
+            self.app_name = app_name
+
+        def show_toast(self, toast):
+            # Fallback: print to console instead of a native toast.
+            message = " / ".join(toast.text_fields)
+            print(f"[{self.app_name}] {message}")
 
 from settings import SettingsManager
 from themes import THEMES, get_theme
 from audio import AudioPlayer
-from version import APP_NAME, VERSION
+from version import APP_NAME, VERSION, WINDOW_WIDTH, WINDOW_HEIGHT
+from translations import t
+
+MAX_TIMERS = 3
 
 
-class SimpleTimerApp:
+def resource_path(relative_path):
+    """
+    開発時（python main.py で実行）と、PyInstaller で exe 化した後の
+    どちらでも、同梱したファイル（アイコンなど）を正しく見つけるための関数。
+    PyInstaller は実行時、一時フォルダ（sys._MEIPASS）にファイルを展開する。
+    """
+    base_path = getattr(sys, "_MEIPASS", None)
 
-    def __init__(self, root):
+    if base_path is None:
+        import os
+        base_path = os.path.dirname(os.path.abspath(__file__))
 
-        self.root = root
+    import os
+    return os.path.join(base_path, relative_path)
 
+
+class TimerManager:
+    """
+    ① 複数のタイマーウィンドウを束ねる管理役。
+    ② 最大3ウィンドウまでという制御をここで一元的に行う。
+    ③ 言語・テーマなどの共有設定もここに持たせる。
+    """
+
+    def __init__(self):
         self.settings = SettingsManager.load_settings()
+        self.settings.setdefault("language", "ja")
 
-        self.root.title(
-            f"{APP_NAME}  v{VERSION}"
-        )
+        self.windows = []      # 現在開いている TimerWindow のリスト
+        self._next_slot = 1    # ウィンドウタイトル用の連番 ("Timer 1", "Timer 2"...)
 
-        self.root.geometry("420x700")
-        self.root.resizable(False, False)
+    @property
+    def language(self):
+        return self.settings.get("language", "ja")
+
+    # ---- ② 最大3ウィンドウ制御 -----------------------------------------
+
+    def can_open_new(self):
+        return len(self.windows) < MAX_TIMERS
+
+    def take_slot(self):
+        slot = self._next_slot
+        self._next_slot += 1
+        return slot
+
+    def register(self, window):
+        self.windows.append(window)
+
+    def unregister(self, window):
+        if window in self.windows:
+            self.windows.remove(window)
+
+        # 最後の1つが閉じたタイミングで設定を保存する
+        if not self.windows:
+            SettingsManager.save_settings(self.settings)
+
+    # ---- 全ウィンドウへの一括反映 ----------------------------------------
+
+    def refresh_language_all(self):
+        for window in list(self.windows):
+            window.refresh_texts()
+
+    def refresh_theme_all(self):
+        for window in list(self.windows):
+            window.update_theme()
+
+
+class TimerWindow:
+    """
+    ① 1つのタイマー/ストップウォッチを表す独立したウィンドウ。
+    ④ 既存のメインタイマーの挙動（開始・一時停止・再開・停止・リセット・
+       テーマ変更・アラーム設定）はそのまま維持する。
+    ⑤ 終了時に自分専用の Windows 通知（トースト）を出す。
+    """
+
+    # ボタンを何列で並べるか（2列にすることで縦の必要スペースを半分近くに抑える）
+    BUTTON_COLUMNS = 2
+
+    def __init__(self, window, manager, is_main=False, slot=1):
+
+        self.window = window
+        self.manager = manager
+        self.settings = manager.settings
+        self.is_main = is_main
+        self.slot = slot
+
+        self.window.geometry(f"{WINDOW_WIDTH}x{WINDOW_HEIGHT}")
+        # 万一ボタン数が増えても隠れないよう、リサイズだけは許可しておく
+        self.window.resizable(True, True)
+        self.window.minsize(WINDOW_WIDTH, 400)
+
+        # ウィンドウ左上の小さいアイコンを設定する。
+        # アイコンファイルが見つからない環境でも起動自体は止めないよう try/except で囲む。
+        try:
+            self.window.iconbitmap(resource_path("icon.ico"))
+        except Exception:
+            pass
 
         self.audio = AudioPlayer()
-        self.toaster = WindowsToaster("Simple Timer")
+
+        # ⑤ タイマーごとに区別できるよう、通知アプリ名にスロット番号を含める
+        self.toaster = WindowsToaster(f"Simple Timer {self.slot}")
 
         self.timer_running = False
         self.stopwatch_running = False
@@ -38,11 +149,12 @@ class SimpleTimerApp:
         self.after_id = None
 
         self.current_theme = self.settings["theme"]
+        self.showing_placeholder = True
 
         self.apply_theme()
 
         self.title_label = tk.Label(
-            self.root,
+            self.window,
             text=APP_NAME,
             font=("Arial", 24, "bold")
         )
@@ -52,7 +164,7 @@ class SimpleTimerApp:
         )
 
         self.time_label = tk.Label(
-            self.root,
+            self.window,
             text="00:00",
             font=("Arial", 48, "bold")
         )
@@ -62,7 +174,7 @@ class SimpleTimerApp:
         )
 
         self.entry = tk.Entry(
-            self.root,
+            self.window,
             width=18,
             justify="center",
             font=("Arial", 16)
@@ -74,7 +186,7 @@ class SimpleTimerApp:
 
         self.entry.insert(
             0,
-            "秒数を入力"
+            t("placeholder_seconds", self.manager.language)
         )
 
         self.entry.bind(
@@ -82,73 +194,50 @@ class SimpleTimerApp:
             self.clear_placeholder
         )
 
-        self.root.bind(
+        self.window.bind(
             "<Return>",
             self.start_timer_key
         )
 
-        self.buttons = []
-        self.create_button(
-            "▶ タイマー開始",
-            self.start_timer
-        )
+        # ボタンをまとめて置く専用フレーム（2列グリッドで配置する）
+        self.button_frame = tk.Frame(self.window)
+        self.button_frame.pack(pady=(10, 15))
 
-        self.create_button(
-            "⏱ ストップウォッチ",
-            self.start_stopwatch
-        )
+        # ③ ボタンは翻訳キーで保持しておき、言語切替時に一括で文言を差し替える
+        self.buttons = {}
+        self._button_count = 0
 
-        self.create_button(
-            "⏸ 一時停止",
-            self.pause
-        )
-
-        self.create_button(
-            "▶ 再開",
-            self.resume
-        )
-
-        self.create_button(
-            "⛔ 停止",
-            self.stop
-        )
-
-        self.create_button(
-            "🔄 リセット",
-            self.reset
-        )
-
-        self.create_button(
-            "🎨 テーマ変更",
-            self.change_theme
-        )
-
-        self.create_button(
-            "🔔 アラーム音選択",
-            self.select_alarm
-        )
-
-        self.create_button(
-            "⏳ アラーム時間設定",
-            self.set_alarm_duration
-        )
+        self.create_button("btn_start_timer", self.start_timer)
+        self.create_button("btn_start_stopwatch", self.start_stopwatch)
+        self.create_button("btn_pause", self.pause)
+        self.create_button("btn_resume", self.resume)
+        self.create_button("btn_stop", self.stop)
+        self.create_button("btn_reset", self.reset)
+        self.create_button("btn_theme", self.change_theme)
+        self.create_button("btn_alarm_select", self.select_alarm)
+        self.create_button("btn_alarm_duration", self.set_alarm_duration)
+        self.create_button("btn_new_timer", self.open_new_timer)
+        self.create_button("btn_language", self.toggle_language)
 
         self.update_theme()
+        self.update_window_title()
 
-        self.root.protocol(
+        self.manager.register(self)
+
+        self.window.protocol(
             "WM_DELETE_WINDOW",
             self.on_close
         )
 
-    def create_button(
-        self,
-        text,
-        command
-    ):
+    # ------------------------------------------------------------------
+    # 生成時の補助
+    # ------------------------------------------------------------------
+
+    def create_button(self, key, command):
 
         button = tk.Button(
-            self.root,
-            text=text,
+            self.button_frame,
+            text=t(key, self.manager.language),
             command=command,
             font=("Arial", 13, "bold"),
             width=18,
@@ -157,11 +246,55 @@ class SimpleTimerApp:
             bd=0
         )
 
-        button.pack(
+        row = self._button_count // self.BUTTON_COLUMNS
+        col = self._button_count % self.BUTTON_COLUMNS
+
+        button.grid(
+            row=row,
+            column=col,
+            padx=4,
             pady=3
         )
 
-        self.buttons.append(button)
+        self._button_count += 1
+
+        self.buttons[key] = button
+
+    def update_window_title(self):
+
+        self.window.title(
+            f"{APP_NAME} v{VERSION} - "
+            f"{t('window_title', self.manager.language, n=self.slot)}"
+        )
+
+    # ------------------------------------------------------------------
+    # ③ 日本語/英語切り替え
+    # ------------------------------------------------------------------
+
+    def toggle_language(self):
+
+        current = self.settings.get("language", "ja")
+        self.settings["language"] = "en" if current == "ja" else "ja"
+
+        # 開いている全ウィンドウの文言を同時に更新する
+        self.manager.refresh_language_all()
+
+    def refresh_texts(self):
+
+        lang = self.manager.language
+
+        for key, button in self.buttons.items():
+            button.config(text=t(key, lang))
+
+        if self.showing_placeholder:
+            self.entry.delete(0, tk.END)
+            self.entry.insert(0, t("placeholder_seconds", lang))
+
+        self.update_window_title()
+
+    # ------------------------------------------------------------------
+    # テーマ
+    # ------------------------------------------------------------------
 
     def apply_theme(self):
 
@@ -169,7 +302,7 @@ class SimpleTimerApp:
             self.current_theme
         )
 
-        self.root.configure(
+        self.window.configure(
             bg=self.theme["bg"]
         )
 
@@ -192,7 +325,11 @@ class SimpleTimerApp:
             fg="black"
         )
 
-        for button in self.buttons:
+        self.button_frame.config(
+            bg=self.theme["bg"]
+        )
+
+        for button in self.buttons.values():
 
             button.config(
                 bg=self.theme["button_bg"],
@@ -222,24 +359,34 @@ class SimpleTimerApp:
             self.current_theme
         )
 
-        self.update_theme()
+        # 開いている全ウィンドウのテーマも揃える
+        for tw in self.manager.windows:
+            tw.current_theme = self.current_theme
+
+        self.manager.refresh_theme_all()
 
         messagebox.showinfo(
-            "テーマ変更",
-            f"{self.current_theme} に変更しました。"
+            t("theme_changed_title", self.manager.language),
+            t("theme_changed_msg", self.manager.language, theme=self.current_theme)
         )
+
+    # ------------------------------------------------------------------
+    # 入力欄まわり
+    # ------------------------------------------------------------------
 
     def clear_placeholder(
         self,
         event
     ):
 
-        if self.entry.get() == "秒数を入力":
+        if self.showing_placeholder:
 
             self.entry.delete(
                 0,
                 tk.END
             )
+
+            self.showing_placeholder = False
 
     def start_timer_key(
         self,
@@ -247,6 +394,10 @@ class SimpleTimerApp:
     ):
 
         self.start_timer()
+
+    # ------------------------------------------------------------------
+    # ④ タイマー/ストップウォッチ本体（既存ロジックを維持）
+    # ------------------------------------------------------------------
 
     def start_timer(self):
 
@@ -259,11 +410,11 @@ class SimpleTimerApp:
             if self.remaining <= 0:
                 raise ValueError
 
-        except:
+        except Exception:
 
             messagebox.showerror(
-                "入力エラー",
-                "1以上の秒数を入力してください。"
+                t("error_title", self.manager.language),
+                t("error_seconds", self.manager.language)
             )
 
             return
@@ -302,25 +453,18 @@ class SimpleTimerApp:
                     self.settings["alarm_duration"]
                 )
 
-                toast = Toast()
-
-                toast.text_fields = [
-                    "タイマー終了",
-                    "設定した時間になりました。"
-                ]
-
-                self.toaster.show_toast(toast)
+                self.notify_finished()
 
                 messagebox.showinfo(
-                    "終了",
-                    "時間になりました。"
+                    t("finished_title", self.manager.language),
+                    t("finished_msg", self.manager.language)
                 )
 
                 return
 
             self.remaining -= 1
 
-        self.after_id = self.root.after(
+        self.after_id = self.window.after(
             1000,
             self.update_timer
         )
@@ -351,7 +495,7 @@ class SimpleTimerApp:
 
             self.elapsed += 1
 
-        self.after_id = self.root.after(
+        self.after_id = self.window.after(
             1000,
             self.update_stopwatch
         )
@@ -372,7 +516,7 @@ class SimpleTimerApp:
 
         if self.after_id:
 
-            self.root.after_cancel(
+            self.window.after_cancel(
                 self.after_id
             )
 
@@ -389,6 +533,27 @@ class SimpleTimerApp:
             text="00:00"
         )
 
+    # ------------------------------------------------------------------
+    # ⑤ Windows通知
+    # ------------------------------------------------------------------
+
+    def notify_finished(self):
+
+        lang = self.manager.language
+
+        toast = Toast()
+
+        toast.text_fields = [
+            t("toast_title", lang),
+            t("toast_msg", lang) + f"  ({t('window_title', lang, n=self.slot)})"
+        ]
+
+        self.toaster.show_toast(toast)
+
+    # ------------------------------------------------------------------
+    # アラーム設定
+    # ------------------------------------------------------------------
+
     def select_alarm(self):
 
         file_path = self.audio.select_file()
@@ -398,21 +563,23 @@ class SimpleTimerApp:
             self.settings["alarm_file"] = file_path
 
             messagebox.showinfo(
-                "アラーム",
-                "アラーム音を設定しました。"
+                t("alarm_title", self.manager.language),
+                t("alarm_set_msg", self.manager.language)
             )
 
     def set_alarm_duration(self):
 
-        window = tk.Toplevel(self.root)
+        lang = self.manager.language
 
-        window.title("アラーム時間")
+        window = tk.Toplevel(self.window)
+
+        window.title(t("alarm_duration_title", lang))
         window.geometry("250x120")
         window.resizable(False, False)
 
         tk.Label(
             window,
-            text="5～30秒"
+            text=t("alarm_duration_hint", lang)
         ).pack(pady=10)
 
         entry = tk.Entry(
@@ -442,30 +609,58 @@ class SimpleTimerApp:
 
                 window.destroy()
 
-            except:
+            except Exception:
 
                 messagebox.showerror(
-                    "エラー",
-                    "5～30の数字を入力してください。"
+                    t("duration_error_title", lang),
+                    t("duration_error_msg", lang)
                 )
 
         tk.Button(
             window,
-            text="保存",
+            text=t("save", lang),
             command=save
         ).pack(
             pady=10
         )
 
+    # ------------------------------------------------------------------
+    # ② 新規ウィンドウ（最大3つまで）
+    # ------------------------------------------------------------------
+
+    def open_new_timer(self):
+
+        if not self.manager.can_open_new():
+
+            messagebox.showwarning(
+                t("max_timers_title", self.manager.language),
+                t("max_timers_msg", self.manager.language)
+            )
+
+            return
+
+        new_toplevel = tk.Toplevel(self.window)
+        slot = self.manager.take_slot()
+
+        TimerWindow(
+            new_toplevel,
+            self.manager,
+            is_main=False,
+            slot=slot
+        )
+
+    # ------------------------------------------------------------------
+    # 終了処理
+    # ------------------------------------------------------------------
+
     def on_close(self):
 
         self.stop()
 
-        SettingsManager.save_settings(
-            self.settings
-        )
+        self.manager.unregister(self)
 
-        self.root.destroy()
+        # メインウィンドウを閉じると、子であるToplevelも道連れで閉じる
+        self.window.destroy()
 
 
 def main():
@@ -474,12 +669,14 @@ def main():
 
     update_available, latest = is_update_available()
 
+    manager = TimerManager()
+    lang = manager.language
+
     if update_available:
 
         result = messagebox.askyesno(
-            "アップデート",
-            f"新しいバージョン {latest} が公開されています。\n\n"
-            "GitHubの更新ページを開きますか？"
+            t("update_title", lang),
+            t("update_msg", lang, latest=latest)
         )
 
         if result:
@@ -491,7 +688,15 @@ def main():
             if url:
                 webbrowser.open(url)
 
-    app = SimpleTimerApp(root)
+    slot = manager.take_slot()
+
+    # ④ 既存の「メインタイマー」はこれまでどおり、ルートウィンドウ上に生成される
+    main_window = TimerWindow(
+        root,
+        manager,
+        is_main=True,
+        slot=slot
+    )
 
     root.mainloop()
 

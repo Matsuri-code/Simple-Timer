@@ -9,7 +9,13 @@ class AudioPlayer:
 
     def __init__(self):
 
-        pygame.mixer.init()
+        self.mixer_available = True
+
+        try:
+            pygame.mixer.init()
+        except pygame.error:
+            # 音声デバイスが無い/使えない環境でもアプリ自体は起動できるようにする
+            self.mixer_available = False
 
         self.current_file = ""
         self.is_playing = False
@@ -33,6 +39,9 @@ class AudioPlayer:
         return self.current_file
 
     def play(self, duration=10):
+
+        if not self.mixer_available:
+            return
 
         if not self.current_file:
 
@@ -87,6 +96,9 @@ class AudioPlayer:
 
     def stop(self):
 
+        if not self.mixer_available:
+            return
+
         pygame.mixer.music.stop()
 
         self.is_playing = False
@@ -99,6 +111,9 @@ class AudioPlayer:
         )
 
         self.volume = volume
+
+        if not self.mixer_available:
+            return
 
         pygame.mixer.music.set_volume(
             volume
