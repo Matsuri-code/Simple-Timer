@@ -40,6 +40,14 @@ Simple Timer は、Python（Tkinter）で作られたシンプルなデスクト
 
 ### インストール
 
+**アプリとして使う場合（推奨）**
+
+[Releases](https://github.com/Matsuri-code/Simple-Timer/releases) から、最新の `SimpleTimer_Setup_vX.X.X.exe` をダウンロードし、実行してインストールしてください。
+
+> ※ ダウンロード時やインストーラー起動時に、Windows から「発行元不明」「WindowsによってPCが保護されました」といった警告が表示される場合があります。これは、個人開発のため Microsoft の署名が付いていないことが原因で、ウイルスなどではありません。表示された場合は「詳細情報」→「実行」と進めば、インストールできます。
+
+**ソースコードから動かす場合**
+
 ```bash
 git clone https://github.com/Matsuri-code/Simple-Timer.git
 cd Simple-Timer
@@ -154,6 +162,14 @@ You can run up to three timers at the same time, each in its own window.
   - Note: on non-Windows platforms, toast notifications are not shown; a message is printed to the console instead
 
 ### Installation
+
+**To use the app (recommended)**
+
+Download the latest `SimpleTimer_Setup_vX.X.X.exe` from the [Releases](https://github.com/Matsuri-code/Simple-Timer/releases) page and run it.
+
+> Note: Windows may show a "Publisher unknown" or "Windows protected your PC" warning when downloading or running the installer. This is because the app is not signed with a Microsoft certificate (it's an individual project), not because it's malicious. If you see this warning, click "More info" → "Run anyway" to continue.
+
+**To run from source**
 
 ```bash
 git clone https://github.com/Matsuri-code/Simple-Timer.git
